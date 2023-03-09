@@ -40,15 +40,22 @@ IMyShipConnector roverConnector;
 List<IMyPistonBase> tempPistonList = new List<IMyPistonBase>();
 List<IMyShipConnector> tempConnectorList = new List<IMyShipConnector>();
 
+class PistonMinMax
+{
+    public IMyPistonBase piston;
+    public float min = 0.0f;
+    public float max = 10.0f;
+}
+
 class DockingBay
 {
-    public IMyPistonBase root;
-    public IMyPistonBase middle;
-    public IMyPistonBase end;
+    public PistonMinMax root = new PistonMinMax();
+    public PistonMinMax middle = new PistonMinMax();
+    public PistonMinMax end = new PistonMinMax();
     public IMyShipConnector connector;
     public MyShipConnectorStatus lastStatus;
-    public TimeSpan busyTime;
-    public bool stowed;
+    public TimeSpan busyTime = TimeSpan.Zero;
+    public bool stowed = false;
 }
 
 List<DockingBay> bays = new List<DockingBay>();
@@ -74,7 +81,8 @@ public Program()
             DockingBay newPotentialBay = new DockingBay();
             newPotentialBay.stowed = false;
             newPotentialBay.busyTime = TimeSpan.Zero;
-            newPotentialBay.root = piston;
+            newPotentialBay.root.piston = piston;
+            getPistonCustomDataMinMax(newPotentialBay.root);
             IMyCubeGrid middleGrid = piston.TopGrid;
 
             // Look for middle piston
@@ -84,8 +92,9 @@ public Program()
             {
                 continue;
             }
-            newPotentialBay.middle = tempPistonList[0];
-            IMyCubeGrid endGrid = newPotentialBay.middle.TopGrid;
+            newPotentialBay.middle.piston = tempPistonList[0];
+            getPistonCustomDataMinMax(newPotentialBay.middle);
+            IMyCubeGrid endGrid = newPotentialBay.middle.piston.TopGrid;
 
             // Look for end piston
             tempPistonList.Clear();
@@ -94,11 +103,12 @@ public Program()
             {
                 continue;
             }
-            newPotentialBay.end = tempPistonList[0];
+            newPotentialBay.end.piston = tempPistonList[0];
+            getPistonCustomDataMinMax(newPotentialBay.end);
 
             // Look for connector on end
             tempConnectorList.Clear();
-            GridTerminalSystem.GetBlocksOfType(tempConnectorList, connectorOnEnd => connectorOnEnd.CubeGrid == newPotentialBay.end.TopGrid);
+            GridTerminalSystem.GetBlocksOfType(tempConnectorList, connectorOnEnd => connectorOnEnd.CubeGrid == newPotentialBay.end.piston.TopGrid);
             if (tempConnectorList.Count != 1)
             {
                 continue;
@@ -234,12 +244,12 @@ public void Main(string argument, UpdateType updateSource)
         }
         if ((updateSource & UpdateType.IGC) > 0)
         {
-            ClearLCD();
             while (_myBroadcastListener.HasPendingMessage)
             {
                 MyIGCMessage myIGCMessage = _myBroadcastListener.AcceptMessage();
                 if (myIGCMessage.Tag == _broadCastTag)
                 { // This is our tag
+                    ClearLCD();
                     if (myIGCMessage.Data is string)
                     {
                         string messageData = myIGCMessage.Data as string;
@@ -252,7 +262,7 @@ public void Main(string argument, UpdateType updateSource)
                     else if(myIGCMessage.Data is MyTuple<string, string, Vector3D, Vector3D>)
                     {
                         var messageData = (MyTuple<string, string, Vector3D, Vector3D>)myIGCMessage.Data;
-                        if (messageData.Item1 != "Docking Request")
+                        if (messageData.Item1 != "Docking Request" || !baseReady)
                         {
                             continue;
                         }
@@ -356,6 +366,39 @@ private string toGPS(Vector3D vector, string name = "", string color = "")
     return $"GPS:{name}:{vector.X}:{vector.Y}:{vector.Z}:{color}";
 }
 
+private void getPistonCustomDataMinMax(PistonMinMax minMax)
+{
+    IMyPistonBase piston = minMax.piston;
+    string data = piston.CustomData;
+    string[] lines = data.Split('\n');
+
+    foreach(string line in lines)
+    {
+        if(line == null || line == "")
+        {
+            continue;
+        }
+        string[] keyVal = line.Split('=');
+        if(keyVal.Length != 2)
+        {
+            Echo($"Current data is malformed on piston named {piston.CustomName}.\nCannot have keyVal length of {keyVal.Length}");
+            continue;
+        }
+
+        string key = keyVal[0];
+        float value = float.Parse(keyVal[1]);
+
+        if(key == "min")
+        {
+            minMax.min = value;
+        }
+        else if(key == "max")
+        {
+            minMax.max = value;
+        }
+    }
+}
+
 private BaseAndMax getPistonBaseAndMax(IMyPistonBase piston)
 {
     Vector3D directionFromBaseToTop = getUnitFromBaseToTop(piston);
@@ -408,8 +451,15 @@ private double getNeededExtent(Vector3D min, Vector3D max, Vector3D target)
     return targetPLength - minPLength;
 }
 
-private void setPistonExtent(IMyPistonBase piston, float target)
+private void setPistonExtent(PistonMinMax pistonMinMax, float target)
 {
+    IMyPistonBase piston = pistonMinMax.piston;
+    if(pistonMinMax.min > target || pistonMinMax.max < target)
+    {
+        Echo($"Cannot move piston named {piston.CustomName} due to custom data bounds.");
+        return;
+    }
+
     float current = piston.CurrentPosition;
 
     if(current > target)
@@ -426,12 +476,14 @@ private void setPistonExtent(IMyPistonBase piston, float target)
 
 private void stowBay(DockingBay bay, bool retractWhenStowing)
 {
-    float stowedExtent = retractWhenStowing ? 0.0f : 10.0f;
+    float rootStowedExtent = retractWhenStowing ? bay.root.min : bay.root.max;
+    float middleStowedExtent = retractWhenStowing ? bay.middle.min : bay.middle.max;
+    float endStowedExtent = retractWhenStowing ? bay.end.min : bay.end.max;
 
     bay.stowed = true;
-    setPistonExtent(bay.root, stowedExtent);
-    setPistonExtent(bay.middle, stowedExtent);
-    setPistonExtent(bay.end, stowedExtent);
+    setPistonExtent(bay.root, rootStowedExtent);
+    setPistonExtent(bay.middle, middleStowedExtent);
+    setPistonExtent(bay.end, endStowedExtent);
 }
 
 private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
@@ -439,9 +491,9 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
     bay.stowed = false;
     bay.busyTime = TimeSpan.FromSeconds(20.0);
 
-    IMyPistonBase firstPiston = bay.root;
-    IMyPistonBase secondPiston = bay.middle;
-    IMyPistonBase thirdPiston = bay.end;
+    IMyPistonBase firstPiston = bay.root.piston;
+    IMyPistonBase secondPiston = bay.middle.piston;
+    IMyPistonBase thirdPiston = bay.end.piston;
 
     BaseAndMax verticalBaseAndMax = getPistonBaseAndMax(firstPiston);
     BaseAndMax lateralBaseAndMax = getPistonBaseAndMax(secondPiston);
@@ -504,11 +556,11 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
         result += $"{neededLateralExtent} neededLateralExtent\n";
         result += $"{neededDepthExtent} neededDepthExtent\n";
 
-        if (neededVerticalExtent < 0 || neededVerticalExtent > 10
-            || neededLateralExtent < 0 || neededLateralExtent > 10
-            || neededDepthExtent < 0 || neededDepthExtent > 10)
+        if (neededVerticalExtent < bay.root.min || neededVerticalExtent > bay.root.max
+            || neededLateralExtent < bay.middle.min || neededLateralExtent > bay.middle.max
+            || neededDepthExtent < bay.end.min || neededDepthExtent > bay.end.max)
         {
-            result += "Error: Docking port cannot make it to target because target is out of bounds.";
+            result += "Error: Docking port cannot make it to target because target is out of bounds (check custom data on pistons to verify bounds).";
             return result;
         }
 
