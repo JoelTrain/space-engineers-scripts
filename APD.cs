@@ -1,3 +1,11 @@
+/*
+ * R e a d m e
+ * -----------
+ * 
+ * In this file you can include any instructions or other comments you want to have injected onto the 
+ * top of your final script. You can safely delete this file if you do not want any such comments.
+ */
+
 // Auto Piston Docking [APD]
 // if you get an error message, try fixing the issue and recompiling the script
 
@@ -17,15 +25,8 @@ string _lightName = "Rotating Light [APD]"; // optional name of a spinning light
 bool enableDebugOutput = false;
 
 bool enableStowing = true; // when true it will attempt to "stow" the connector into a safe place when not in use
-bool retractWhenStowed = true; // pistons will fully retract to stow away when undocked. set to false to extend when stowed
+bool retractWhenStowed = false; // pistons will fully retract to stow away when undocked. set to false to extend when stowed
 
-// Connector offset
-// The number of meters to offset the desired position from the center of the connector on the rover.
-// Small Block Grid Connectors need a 0.75m offset
-// Large Block Grid Connectors need a 1.5m offset
-float smallConnectorOffset = 0.75f;
-float largeConnectorOffset = 1.5f;
-float connectorOffset = 0.75f;
 
 // private variables not meant to be changed
 int _runcount = 0;
@@ -123,7 +124,7 @@ public Program()
 
         if (bays.Count < 1)
         {
-            Echo("Enabling mode: Rover/Ship");
+            Echo("No docking bays found. Assuming this is a rover.");
             tempConnectorList.Clear();
             GridTerminalSystem.GetBlocksOfType(tempConnectorList);
 
@@ -133,51 +134,21 @@ public Program()
 
                 if (tempConnectorList.Count > 1)
                 {
-                    Echo($"Error: only one connector allowed with {scriptTag} tag on connecting craft.");
+                    Echo($"Error: only one connector allowed with {scriptTag} tag on rovers.");
                 }
 
             }
             if(tempConnectorList.Count < 1)
             {
-                Echo("Error: No connectors found. Please add a connector and recompile.");
+                Echo("Error: no connectors found. Please add a connector and recomile.");
                 return;
             }
 
             roverConnector = tempConnectorList[0];
-            MyCubeSize gridSize = roverConnector.CubeGrid.GridSizeEnum;
-
-            if (gridSize == MyCubeSize.Large)
-            {
-                connectorOffset = largeConnectorOffset;
-                Debug($"Craft connector is a large block, setting offset to {connectorOffset}");
-            }
-            else if (gridSize == MyCubeSize.Small)
-            {
-                connectorOffset = smallConnectorOffset;
-                Debug($"Craft connector is a large block, setting offset to {connectorOffset}");
-            }
-
-            Echo("Ready to transmit! Run this script block when ready to dock.");
-
             return;
         }
 
-        Echo("Enabling mode: Docking Bay/Station");
-        Echo($"{bays.Count} docking bays found.");
-
-        if(enableStowing)
-        {
-          Echo("Docking Bay stowing on disconnect: enabled");
-          if(retractWhenStowed)
-          {
-            Echo($"Docking pistons will retract upon disconnect");
-          }
-          else
-          {
-            Echo($"docking pistons will extend upon disconnect");
-          }
-        }
-        Echo("Base is ready to receive docking requests!");
+        Echo($"{bays.Count} docking bays found. Base is ready for docking requests!");
         baseReady = true;
     }
     catch (Exception e)
@@ -201,11 +172,6 @@ public void Main(string argument, UpdateType updateSource)
     try
     {
         _runcount++;
-
-        if(_runcount > 10000)
-        {
-          _runcount = 0;
-        }
         Echo(_runcount.ToString() + ":" + updateSource.ToString());
 
         if ((updateSource & triggerUpdate) > 0)
@@ -220,12 +186,9 @@ public void Main(string argument, UpdateType updateSource)
             if (roverConnector != null)
             {
                 var portOrientation = Vector3D.Normalize(roverConnector.WorldMatrix.Forward);
-                var portPosition = roverConnector.GetPosition() + (portOrientation * connectorOffset);
-                string requestBody = $"Requesting automatic docking for {roverConnector.CubeGrid.CustomName}";
-                var request = new MyTuple<string, string, Vector3D, Vector3D>("Docking Request", requestBody, portPosition, portOrientation);
+                var portPosition = roverConnector.GetPosition() + portOrientation * 0.75;
+                var request = new MyTuple<string, string, Vector3D, Vector3D>("Docking Request", "Requesting automatic docking", portPosition, portOrientation);
                 Echo("Sending docking request");
-                Debug(toGPS(roverConnector.GetPosition(), "connectorPos") + "\n");
-                Debug(toGPS(portPosition, "offsetPos") + "\n");
                 IGC.SendBroadcastMessage(_broadCastTag, request);
 
             }
@@ -251,15 +214,10 @@ public void Main(string argument, UpdateType updateSource)
                 {
                     // we were connected but now we are not or we have been sitting idle without a connection for too long
                     // so we need to begin to stow
-                    bool justDisconnected = bay.lastStatus == MyShipConnectorStatus.Connected;
-                    if(justDisconnected || bay.busyTime <= TimeSpan.Zero)
+                    if(bay.lastStatus == MyShipConnectorStatus.Connected || bay.busyTime <= TimeSpan.Zero)
                     {
                         if(enableStowing)
                         {
-                            if(justDisconnected)
-                            {
-                                Echo($"Stowing bay: {bay.connector.CustomName}");
-                            }
                             stowBay(bay, retractWhenStowed);
                         }
                     }
@@ -276,7 +234,7 @@ public void Main(string argument, UpdateType updateSource)
         }
         if ((updateSource & UpdateType.IGC) > 0)
         {
-            //ClearLCD();
+            ClearLCD();
             while (_myBroadcastListener.HasPendingMessage)
             {
                 MyIGCMessage myIGCMessage = _myBroadcastListener.AcceptMessage();
@@ -302,7 +260,7 @@ public void Main(string argument, UpdateType updateSource)
                         var otherPortPosition = messageData.Item3;
                         var otherPortOrientation = messageData.Item4;
 
-                        Debug("Received Docking request:");
+                        Debug("Received Docking request from");
                         Debug(messageData.Item2);
                         Debug(toGPS(messageData.Item3, "Position"));
                         Debug($"Orientation: {messageData.Item4}");
@@ -579,11 +537,6 @@ private void setupOutputSurface()
     List<IMyTextPanel> lcdScreens = new List<IMyTextPanel>();
     GridTerminalSystem.GetBlocksOfType(lcdScreens, screen => screen.CustomName.Contains(scriptTag));
 
-    if (!Me.CustomName.Contains(ignoreTag))
-    {
-        outputScreens.Add(Me.GetSurface(0));
-    }
-
     foreach(IMyTextSurface panel in lcdScreens)
     {
         if (panel != null)
@@ -610,10 +563,10 @@ private void setupOutputSurface()
             }
         }
     }
-}
-
-public void ScrollOne(IMyTextSurface screen)
-{
+    if (outputScreens.Count < 1 && !Me.CustomName.Contains(ignoreTag))
+    {
+        outputScreens.Add(Me.GetSurface(0));
+    }
 }
 
 public void Debug(string text)
@@ -634,14 +587,6 @@ public void EchoToLCD(string text)
             continue;
         }
         screen.ContentType = ContentType.TEXT_AND_IMAGE;
-
-        string screenText = screen.GetText();
-        string[] lines = screenText.Split('\n');
-        if(lines.Length > 15) 
-        {
-          string newText = screenText.Remove(0, lines[0].Length + 1);
-          screen?.WriteText(newText, false);
-        }
         screen?.WriteText($"{text}\n", append);
     }
 }
