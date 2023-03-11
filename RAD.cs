@@ -418,7 +418,11 @@ private Vector3D getPlayerPos()
 
   Echo(detectedEntity.Name);
 
-  return detectedEntity.Position;
+	// static Vector3D Transform(Vector3D position, MatrixD matrix)
+
+	Vector3D playerUp = new Vector3D(0.0, 1.5, 0.0);
+
+  return detectedEntity.Position + (Vector3D.Transform(playerUp, detectedEntity.Orientation));
 }
 
 private DockingBay findClosestBayToPosition(Vector3D otherPortPosition, List<DockingBay> dockingBays)
@@ -610,21 +614,32 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 
     Vector3D connectorPos = bay.connector.GetPosition() + connectorDir * largeConnectorOffset;
 
+		// these are good
+		Vector3D middleRotorPos = middleRotor.GetPosition();
+		Echo(toGPS(middleRotorPos, "middleRotorPos"));
+		Vector3D endRotorPos = endRotor.GetPosition();
+		Echo(toGPS(endRotorPos, "endRotorPos"));
+
 		// @TODO incorrect section
 		// this seems right
 		Vector3D connectorDiscNormal = Vector3D.ProjectOnVector(ref connectorPos, ref pistonDir);
 		// Vector3D connectorDiscNormal = Vector3D.ProjectOnVector(ref verticalBaseAndMax.basePos, ref pistonDir);
 		Echo(toGPS(connectorDiscNormal, "connectorDiscNormal"));
 
-		// this is wrong need to project the target onto the pistonDir as well and compare the projections and then take the difference back and offset the target to get on disc
-		Vector3D targetProjectedOnDisc = Vector3D.ProjectOnPlane(ref targetPosition, ref connectorDiscNormal);
-		Echo(toGPS(targetProjectedOnDisc, "targetProjectedOnDisc"));
+		Vector3D targetToMiddleRotor = middleRotorPos - targetPosition;
+		Vector3D middleRotorToEndRotor = endRotorPos - middleRotorPos;
+		Vector3D endRotorToTarget = targetPosition - endRotorPos;
 
-		// these are good
-		Vector3D middleRotorPos = middleRotor.GetPosition();
-		Echo(toGPS(middleRotorPos, "middleRotorPos"));
-		Vector3D endRotorPos = endRotor.GetPosition();
-		Echo(toGPS(endRotorPos, "endRotorPos"));
+		Vector3D targetToMiddleRotorOnDisc = Vector3D.ProjectOnPlane(ref targetToMiddleRotor, ref connectorDiscNormal);
+		Vector3D middleRotorToEndRotorOnDisc = Vector3D.ProjectOnPlane(ref middleRotorToEndRotor, ref connectorDiscNormal);
+		Vector3D endRotorToTargetOnDisc = Vector3D.ProjectOnPlane(ref endRotorToTarget, ref connectorDiscNormal);
+
+		// this is wrong need to project the target onto the pistonDir as well and compare the projections and then take the difference back and offset the target to get on disc
+		Vector3D targetOnPistonDir = Vector3D.ProjectOnVector(ref targetPosition, ref pistonDir);
+		Vector3D targetToPlaneIntersect = Vector3D.Subtract(connectorDiscNormal, targetOnPistonDir);
+
+		Vector3D targetProjectedOnDisc = Vector3D.Add(targetPosition, targetToPlaneIntersect);
+		Echo(toGPS(targetProjectedOnDisc, "targetProjectedOnDisc"));
 
 		// 
 		Vector3D centerOfDisc = Vector3D.ProjectOnPlane(ref middleRotorPos, ref connectorDiscNormal);
@@ -653,14 +668,18 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
     //     result += $"{neededDepthExtent} neededDepthExtent\n";
 
 		
-				double middleRotorToEndRotor = Vector3D.Distance(connectorPos, endRotorOnDisc);
-				double endRotorToConnector = Vector3D.Distance(endRotorOnDisc, centerOfDisc);
-				double radiusOfTargetFromDiscCenter = Vector3D.Distance(targetProjectedOnDisc, centerOfDisc);
+				// double middleRotorToEndRotor = Vector3D.Distance(connectorPos, endRotorOnDisc);
+				// double endRotorToConnector = Vector3D.Distance(endRotorOnDisc, centerOfDisc);
+				// double radiusOfTargetFromDiscCenter = Vector3D.Distance(targetProjectedOnDisc, centerOfDisc);
+
+				double middleRotorToEndRotorLength = Vector3D.Distance(middleRotorToEndRotorOnDisc, endRotorOnDisc);
+				double endRotorToConnectorLength = Vector3D.Distance(endRotorToTarget, centerOfDisc);
+				double radiusOfTargetFromDiscCenterLength = Vector3D.Distance(targetToMiddleRotorOnDisc, centerOfDisc);
 
 				Echo(toGPS(targetProjectedOnDisc, "pod"));
 
-				double lateralMinimum = middleRotorToEndRotor - endRotorToConnector;
-				double lateralMaximum = middleRotorToEndRotor + endRotorToConnector;
+				double lateralMinimum = middleRotorToEndRotorLength - endRotorToConnectorLength;
+				double lateralMaximum = middleRotorToEndRotorLength + endRotorToConnectorLength;
 
 				// List<Vector3D> connectorPosPoints = new List<Vector3D>();
 				// connectorPosPoints.Add(minimumConnectorVert);
@@ -686,7 +705,7 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 				Debug(toGPS(connectorPos, "connectorPos"));
 				Debug(toGPS(targetPosition, "targetPosition"));
 
-				double neededLateralExtent = radiusOfTargetFromDiscCenter;
+				double neededLateralExtent = radiusOfTargetFromDiscCenterLength;
         result += $"{neededLateralExtent} neededLateralExtent\n";
 
         if (neededVerticalExtent < 0 || neededVerticalExtent > 10
@@ -714,15 +733,17 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 				// b = target on plane to middle rotor (across from angle beta)
 				// c = middle rotor to end rotor (across from angle gamma)
 
-				double a = middleRotorToEndRotor;
-				double b = endRotorToConnector;
-				double c = radiusOfTargetFromDiscCenter;
+				double a = middleRotorToEndRotorLength;
+				double b = endRotorToConnectorLength;
+				double c = radiusOfTargetFromDiscCenterLength;
 
-				// double alpha = Double.Acos( (b * b) + (c * c) - (a * a) / (2 * b * c) );
-				// double beta = Double.Acos( (a * a) + (c * c) - (b * b) / (2 * a * c) );
-				// double gamma = Double.Acos( (a * a) + (b * b) - (c * c) / (2 * a * b) );
+				float alpha = MathHelper.MonotonicAcos((float)((b * b) + (c * c) - (a * a) / (2 * b * c)));
+				Echo(alpha.ToString());
+				Echo("ANGLE");
+				float beta = MathHelper.MonotonicAcos((float)((a * a) + (c * c) - (b * b) / (2 * a * c)));
+				float gamma = MathHelper.MonotonicAcos((float)((a * a) + (b * b) - (c * c) / (2 * a * b)));
 
-				// Echo((alpha + beta + gamma).ToString());
+				Echo((alpha + beta + gamma).ToString());
 
 				// double middleRotorAngleRadians = alpha;
 				// double endRotorAngleRadians = beta;
