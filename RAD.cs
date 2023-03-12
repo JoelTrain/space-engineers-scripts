@@ -8,7 +8,7 @@ string scriptTag = "[RAD]";    // only connectors on craft with this tag in the 
 string ignoreTag = "[ignore]"; // script will ignore this block (currently only used for cockpits and programmable block screens)
 
 // set this to false to stop receiving
-bool enableDebugOutput = true;
+bool enableDebugOutput = false;
 
 bool enableStowing = true; // when true it will attempt to "stow" the connector into a safe place when not in use
 bool retractWhenStowed = true; // pistons will fully retract to stow away when undocked. set to false to extend when stowed
@@ -246,13 +246,14 @@ public void Main(string argument, UpdateType updateSource)
             }
             else 
             {
-                Runtime.UpdateFrequency |= UpdateFrequency.Update100;
+                Runtime.UpdateFrequency |= (UpdateFrequency.Update100 | UpdateFrequency.Update1);
             }
         }
         // If the update source has this update flag, it means
         // that it's run from the frequency system, and we should
         // update our continuous logic.
-        if ((updateSource & UpdateType.Update100) != 0)
+        // if ((updateSource & UpdateType.Update100) != 0)
+        if ((updateSource & UpdateType.Update1) != 0)
         {
             if(_runcount % 100 == 0)
             {
@@ -265,7 +266,7 @@ public void Main(string argument, UpdateType updateSource)
 
 							DockingBay closestBay = findClosestBayToPosition(playerPos, bays);
 
-							Echo(toGPS(playerPos));
+							// Echo(toGPS(playerPos));
 							string movementResult = moveBayToPos(closestBay, playerPos);
 							Echo(movementResult);
 						}
@@ -416,7 +417,7 @@ private Vector3D getPlayerPos()
     throw new Exception($"Custom Turret controller {controllerName} does not have a target.");
   }
 
-  Echo(detectedEntity.Name);
+  // Echo(detectedEntity.Name);
 
 	// static Vector3D Transform(Vector3D position, MatrixD matrix)
 
@@ -594,20 +595,9 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
     IMyMotorAdvancedStator endRotor = bay.end;
 
     BaseAndMax verticalBaseAndMax = getPistonBaseAndMax(firstPiston);
-    // BaseAndMax lateralBaseAndMax = getPistonBaseAndMax(middleRotor);
-    // BaseAndMax depthBaseAndMax = getPistonBaseAndMax(endRotor);
 
     Vector3D vertDisplacement = fromBaseToMax(verticalBaseAndMax);
-		Vector3D pistonDir = Vector3D.Normalize(vertDisplacement); // not needed
-    // Vector3D latDisplacement = fromBaseToMax(lateralBaseAndMax);
-    // Vector3D depDisplacement = fromBaseToMax(depthBaseAndMax);
-
-    // Debug($"vert {vertDisplacement.Length()}");
-    // Debug($"lat {latDisplacement.Length()}");
-    // Debug($"dep {depDisplacement.Length()}");
-
-    // Vector3D vertHeadToLatBase = Vector3D.Subtract(lateralBaseAndMax.basePos, verticalBaseAndMax.currentTop);
-    // Vector3D latHeadToDepBase = Vector3D.Subtract(depthBaseAndMax.basePos, lateralBaseAndMax.currentTop);
+		Vector3D pistonDir = Vector3D.Normalize(vertDisplacement);
 
  		// in the direction from the base-end of the connector on the base toward the docking-port-end.
     Vector3D connectorDir = Vector3D.Normalize(bay.connector.WorldMatrix.Forward);
@@ -616,94 +606,67 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 
 		// these are good
 		Vector3D middleRotorPos = middleRotor.GetPosition();
-		Echo(toGPS(middleRotorPos, "middleRotorPos"));
+		Debug(toGPS(middleRotorPos, "middleRotorPos"));
 		Vector3D endRotorPos = endRotor.GetPosition();
-		Echo(toGPS(endRotorPos, "endRotorPos"));
+		Debug(toGPS(endRotorPos, "endRotorPos"));
 
-		// @TODO incorrect section
-		// this seems right
 		Vector3D connectorDiscNormal = Vector3D.ProjectOnVector(ref connectorPos, ref pistonDir);
-		// Vector3D connectorDiscNormal = Vector3D.ProjectOnVector(ref verticalBaseAndMax.basePos, ref pistonDir);
-		Echo(toGPS(connectorDiscNormal, "connectorDiscNormal"));
+		Debug(toGPS(connectorDiscNormal, "connectorDiscNormal"));
 
-		Vector3D targetToMiddleRotor = middleRotorPos - targetPosition;
-		Vector3D middleRotorToEndRotor = endRotorPos - middleRotorPos;
-		Vector3D endRotorToTarget = targetPosition - endRotorPos;
-
-		Vector3D targetToMiddleRotorOnDisc = Vector3D.ProjectOnPlane(ref targetToMiddleRotor, ref connectorDiscNormal);
-		Vector3D middleRotorToEndRotorOnDisc = Vector3D.ProjectOnPlane(ref middleRotorToEndRotor, ref connectorDiscNormal);
-		Vector3D endRotorToTargetOnDisc = Vector3D.ProjectOnPlane(ref endRotorToTarget, ref connectorDiscNormal);
-
-		// this is wrong need to project the target onto the pistonDir as well and compare the projections and then take the difference back and offset the target to get on disc
 		Vector3D targetOnPistonDir = Vector3D.ProjectOnVector(ref targetPosition, ref pistonDir);
 		Vector3D targetToPlaneIntersect = Vector3D.Subtract(connectorDiscNormal, targetOnPistonDir);
-
 		Vector3D targetProjectedOnDisc = Vector3D.Add(targetPosition, targetToPlaneIntersect);
 		Echo(toGPS(targetProjectedOnDisc, "targetProjectedOnDisc"));
 
-		// 
-		Vector3D centerOfDisc = Vector3D.ProjectOnPlane(ref middleRotorPos, ref connectorDiscNormal);
-		Vector3D endRotorOnDisc = Vector3D.ProjectOnPlane(ref endRotorPos, ref connectorDiscNormal);
+		Vector3D middleRotorOnPistonDir = Vector3D.ProjectOnVector(ref middleRotorPos, ref pistonDir);
+		Vector3D centerOfDiscToPlane = Vector3D.Subtract(connectorDiscNormal, middleRotorOnPistonDir);
+		Vector3D centerOfDisc = Vector3D.Add(middleRotorPos, centerOfDiscToPlane);
+		Debug(toGPS(centerOfDisc, "centerOfDisc"));
 
-		Echo(toGPS(centerOfDisc, "centerOfDisc"));
-		Echo(toGPS(endRotorOnDisc, "endRotorOnDisc"));
-
-		// end
-
-    // //@TODO this assumes the connector is attached to the depth piston and the depth is the outermost piston from the main grid
-    // Vector3D depHeadToConnector = Vector3D.Subtract(connectorPos, depthBaseAndMax.currentTop);
+		Vector3D endRotorOnPistonDir = Vector3D.ProjectOnVector(ref endRotorPos, ref connectorDiscNormal);
+		Vector3D endRotorToPlane = Vector3D.Subtract(connectorDiscNormal, endRotorOnPistonDir);
+		Vector3D endRotorOnDisc = Vector3D.Add(endRotorPos, endRotorToPlane);
+		Debug(toGPS(endRotorOnDisc, "endRotorOnDisc"));
 
     Vector3D minimumConnectorVert = connectorPos - firstPiston.CurrentPosition;
-    // Vector3D maximimConnectorPos = minimumConnectorPos + vertDisplacement + latDisplacement + depDisplacement;
+		Vector3D rotorZeroDir = Vector3D.Normalize(middleRotor.WorldMatrix.Forward);
+
+		
+		Echo(toGPS(centerOfDisc + rotorZeroDir, "rotorZeroDir"));
+		Vector3D middleRotorOnPlaneToTargetOnPlane = Vector3D.Subtract(targetProjectedOnDisc, centerOfDisc);
+		Vector3D middleRotorOnPlaneToTargetOnPlaneUnit = Vector3D.Normalize(middleRotorOnPlaneToTargetOnPlane);
+		// a dot b = ||a|| * ||b|| * cos(theta); where theta is the angle between them
+		float angleRadsFromMiddleRotorToTarget = MathHelper.MonotonicAcos(2.0f - Vector3.Dot(rotorZeroDir, middleRotorOnPlaneToTargetOnPlaneUnit));
+		// float angleRadsFromMiddleRotorToTarget = MyMath.AngleBetween(rotorZeroDir, middleRotorOnPlaneToTargetOnPlaneUnit);
+
+		// alpha + x = theta1; 
+		// where theta1 is the angle between the target and the middle rotor right (when it is at o degrees)
+		// x is the angle the middle rotor needs to be set to
+		// alpha is the angle of the triangle centered at the middle rotor
+
+		float theta1 = angleRadsFromMiddleRotorToTarget;
+		Echo($"theta1: {toDegrees(theta1).ToString()}");
 
     string result = "";
 
     try
     {
         double neededVerticalExtent = getNeededExtent(minimumConnectorVert, minimumConnectorVert + vertDisplacement, targetPosition);
-    //     double neededLateralExtent = getNeededExtent(minimumConnectorPos, minimumConnectorPos + latDisplacement, targetPosition);
-    //     double neededDepthExtent = getNeededExtent(minimumConnectorPos, minimumConnectorPos + depDisplacement, targetPosition);
-
         result += $"{neededVerticalExtent} neededVerticalExtent\n";
-    //     result += $"{neededDepthExtent} neededDepthExtent\n";
 
-		
-				// double middleRotorToEndRotor = Vector3D.Distance(connectorPos, endRotorOnDisc);
-				// double endRotorToConnector = Vector3D.Distance(endRotorOnDisc, centerOfDisc);
-				// double radiusOfTargetFromDiscCenter = Vector3D.Distance(targetProjectedOnDisc, centerOfDisc);
-
-				double middleRotorToEndRotorLength = Vector3D.Distance(middleRotorToEndRotorOnDisc, endRotorOnDisc);
-				double endRotorToConnectorLength = Vector3D.Distance(endRotorToTarget, centerOfDisc);
-				double radiusOfTargetFromDiscCenterLength = Vector3D.Distance(targetToMiddleRotorOnDisc, centerOfDisc);
-
-				Echo(toGPS(targetProjectedOnDisc, "pod"));
+				double middleRotorToEndRotorLength = Vector3D.Distance(centerOfDisc, endRotorOnDisc);
+				double endRotorToConnectorLength = Vector3D.Distance(endRotorOnDisc, connectorPos);
+				double radiusOfTargetFromDiscCenterLength = Vector3D.Distance(targetProjectedOnDisc, centerOfDisc);
 
 				double lateralMinimum = middleRotorToEndRotorLength - endRotorToConnectorLength;
 				double lateralMaximum = middleRotorToEndRotorLength + endRotorToConnectorLength;
-
-				// List<Vector3D> connectorPosPoints = new List<Vector3D>();
-				// connectorPosPoints.Add(minimumConnectorVert);
-				// connectorPosPoints.Add(connectorPos);
-
-				// // these two are wrong @TODO
-				// connectorPosPoints.Add(endRotorOnDisc);
-				// connectorPosPoints.Add(centerOfDisc);
-				// //
-
-				// connectorPosPoints.Add(targetProjectedOnDisc);
-				// connectorPosPoints.Add(centerOfDisc);
-				// connectorPosPoints.Add(minimumConnectorVert + vertDisplacement);
-
-				// for (int i = 0; i < connectorPosPoints.Count; ++i)
-				// {
-				// 		Vector3D point = connectorPosPoints[i];
-				// 		Debug(toGPS(point, $"point{i}"));
-				// }
 
 				Debug(toGPS(verticalBaseAndMax.basePos, "verticalPistonBase"));
 				Debug(toGPS(verticalBaseAndMax.maxPos, "verticalPistonMax"));
 				Debug(toGPS(connectorPos, "connectorPos"));
 				Debug(toGPS(targetPosition, "targetPosition"));
+				Echo($"lateralMaximum: {lateralMaximum}");
+				Echo($"middleRotorToEndRotorLength: {middleRotorToEndRotorLength}");
 
 				double neededLateralExtent = radiusOfTargetFromDiscCenterLength;
         result += $"{neededLateralExtent} neededLateralExtent\n";
@@ -733,27 +696,32 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 				// b = target on plane to middle rotor (across from angle beta)
 				// c = middle rotor to end rotor (across from angle gamma)
 
-				double a = middleRotorToEndRotorLength;
-				double b = endRotorToConnectorLength;
-				double c = radiusOfTargetFromDiscCenterLength;
+				double a = endRotorToConnectorLength;
+				double b = radiusOfTargetFromDiscCenterLength;
+				double c = middleRotorToEndRotorLength;
+				Echo($"a: {a.ToString()}");
+				Echo($"b: {b.ToString()}");
+				Echo($"c: {c.ToString()}");
 
-				float alpha = MathHelper.MonotonicAcos((float)((b * b) + (c * c) - (a * a) / (2 * b * c)));
-				Echo(alpha.ToString());
-				Echo("ANGLE");
-				float beta = MathHelper.MonotonicAcos((float)((a * a) + (c * c) - (b * b) / (2 * a * c)));
-				float gamma = MathHelper.MonotonicAcos((float)((a * a) + (b * b) - (c * c) / (2 * a * b)));
+				double cosa = ((b * b) + (c * c) - (a * a)) / (2 * b * c);
+				// Echo($"cos(alpha): {cosa.ToString()}");
 
-				Echo((alpha + beta + gamma).ToString());
+				float alpha = MathHelper.MonotonicAcos(2.0f - (float)cosa);
+				Echo($"alpha ANGLE middle rotor degrees: {toDegrees(alpha).ToString()}");
+				float beta = MathHelper.MonotonicAcos(2.0f - (float)(((a * a) + (c * c) - (b * b)) / (2 * a * c)));
+				Echo($"beta ANGLE end rotor degrees: {toDegrees(beta).ToString()}");
+				float gamma = MathHelper.MonotonicAcos(2.0f - (float)(((a * a) + (b * b) - (c * c)) / (2 * a * b)));
+				Echo($"gamma ANGLE target to middle: {toDegrees(gamma).ToString()}");
 
-				// double middleRotorAngleRadians = alpha;
-				// double endRotorAngleRadians = beta;
+				if(Math.Pow(piF - (alpha + beta + gamma), 2) > 0.0003f)
+					throw new Exception((alpha + beta + gamma).ToString() + " angles do not add up to Pi radians");
 
+				double middleRotorAngleRadians = theta1 - alpha;
+				double endRotorAngleRadians = beta;
 
         setPistonExtent(bay.root, (float)neededVerticalExtent);
-				// setRotorRotation(bay.middle, (float)middleRotorAngleRadians);
-				// setRotorRotation(bay.end, (float)endRotorAngleRadians);
-    //     setPistonExtent(bay.middle, (float)neededLateralExtent);
-    //     setPistonExtent(bay.end, (float)neededDepthExtent);
+				setRotorRotation(bay.middle, (float)(middleRotorAngleRadians));
+				setRotorRotation(bay.end, (float)endRotorAngleRadians);
     }
     catch (Exception e)
     {
@@ -761,6 +729,11 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
     }
     return result;
 }
+
+private float toDegrees(float radians) {
+	return radians * 180.0f / piF;
+}
+
 
 private void setupOutputSurface()
 {
