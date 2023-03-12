@@ -221,7 +221,7 @@ public void Main(string argument, UpdateType updateSource)
         {
           _runcount = 0;
         }
-        Echo(_runcount.ToString() + ":" + updateSource.ToString());
+        Debug(_runcount.ToString() + ":" + updateSource.ToString());
 
         if ((updateSource & triggerUpdate) > 0)
         {
@@ -255,7 +255,7 @@ public void Main(string argument, UpdateType updateSource)
         // if ((updateSource & UpdateType.Update100) != 0)
         if ((updateSource & UpdateType.Update1) != 0)
         {
-            if(_runcount % 100 == 0)
+            if(_runcount % 10000 == 0)
             {
                 ClearLCD();
             }
@@ -268,11 +268,11 @@ public void Main(string argument, UpdateType updateSource)
 
 							// Echo(toGPS(playerPos));
 							string movementResult = moveBayToPos(closestBay, playerPos);
-							Echo(movementResult);
+							// Echo(movementResult);
 						}
 						catch (Exception e)
 						{
-							Echo(e.Message + '\n');
+							// Echo(e.Message + '\n');
 						}
 
             foreach(DockingBay bay in bays)
@@ -421,7 +421,7 @@ private Vector3D getPlayerPos()
 
 	// static Vector3D Transform(Vector3D position, MatrixD matrix)
 
-	Vector3D playerUp = new Vector3D(0.0, 1.5, 0.0);
+	Vector3D playerUp = new Vector3D(0.0, 2.5, 0.0);
 
   return detectedEntity.Position + (Vector3D.Transform(playerUp, detectedEntity.Orientation));
 }
@@ -616,7 +616,7 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 		Vector3D targetOnPistonDir = Vector3D.ProjectOnVector(ref targetPosition, ref pistonDir);
 		Vector3D targetToPlaneIntersect = Vector3D.Subtract(connectorDiscNormal, targetOnPistonDir);
 		Vector3D targetProjectedOnDisc = Vector3D.Add(targetPosition, targetToPlaneIntersect);
-		Echo(toGPS(targetProjectedOnDisc, "targetProjectedOnDisc"));
+		Debug(toGPS(targetProjectedOnDisc, "targetProjectedOnDisc"));
 
 		Vector3D middleRotorOnPistonDir = Vector3D.ProjectOnVector(ref middleRotorPos, ref pistonDir);
 		Vector3D centerOfDiscToPlane = Vector3D.Subtract(connectorDiscNormal, middleRotorOnPistonDir);
@@ -632,20 +632,34 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 		Vector3D rotorZeroDir = Vector3D.Normalize(middleRotor.WorldMatrix.Forward);
 
 		
-		Echo(toGPS(centerOfDisc + rotorZeroDir, "rotorZeroDir"));
+		Debug(toGPS(centerOfDisc + rotorZeroDir, "rotorZeroDir"));
 		Vector3D middleRotorOnPlaneToTargetOnPlane = Vector3D.Subtract(targetProjectedOnDisc, centerOfDisc);
 		Vector3D middleRotorOnPlaneToTargetOnPlaneUnit = Vector3D.Normalize(middleRotorOnPlaneToTargetOnPlane);
 		// a dot b = ||a|| * ||b|| * cos(theta); where theta is the angle between them
-		float angleRadsFromMiddleRotorToTarget = MathHelper.MonotonicAcos(2.0f - Vector3.Dot(rotorZeroDir, middleRotorOnPlaneToTargetOnPlaneUnit));
-		// float angleRadsFromMiddleRotorToTarget = MyMath.AngleBetween(rotorZeroDir, middleRotorOnPlaneToTargetOnPlaneUnit);
+
+		// the signed angle of vector a rotated to vector b where n is a unit vector normal to the plane containing a and b
+		//  β = atan2((a cross b) dot n, a dot b)
+
+		float angleRadsFromMiddleRotorToTarget;
+		{
+			float sin = Vector3.Dot(Vector3.Cross(middleRotorOnPlaneToTargetOnPlaneUnit, rotorZeroDir), middleRotor.WorldMatrix.Up); 
+			float cos = Vector3.Dot(rotorZeroDir, middleRotorOnPlaneToTargetOnPlaneUnit);
+			angleRadsFromMiddleRotorToTarget = (float)Math.Atan2(sin, cos);
+		}
+
+
+		Echo($"angle: {toDegrees(angleRadsFromMiddleRotorToTarget).ToString()}");
+
+		// if(angleRadsFromMiddleRotorToTargetSine < 0)
+		// 	angleRadsFromMiddleRotorToTarget *= -1;
 
 		// alpha + x = theta1; 
-		// where theta1 is the angle between the target and the middle rotor right (when it is at o degrees)
+		// where theta1 is the angle between the target and the middle rotor firward (when it is at 0 degrees)
 		// x is the angle the middle rotor needs to be set to
 		// alpha is the angle of the triangle centered at the middle rotor
 
 		float theta1 = angleRadsFromMiddleRotorToTarget;
-		Echo($"theta1: {toDegrees(theta1).ToString()}");
+		Debug($"theta1: {toDegrees(theta1).ToString()}");
 
     string result = "";
 
@@ -665,8 +679,8 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 				Debug(toGPS(verticalBaseAndMax.maxPos, "verticalPistonMax"));
 				Debug(toGPS(connectorPos, "connectorPos"));
 				Debug(toGPS(targetPosition, "targetPosition"));
-				Echo($"lateralMaximum: {lateralMaximum}");
-				Echo($"middleRotorToEndRotorLength: {middleRotorToEndRotorLength}");
+				Debug($"lateralMaximum: {lateralMaximum}");
+				Debug($"middleRotorToEndRotorLength: {middleRotorToEndRotorLength}");
 
 				double neededLateralExtent = radiusOfTargetFromDiscCenterLength;
         result += $"{neededLateralExtent} neededLateralExtent\n";
@@ -699,19 +713,19 @@ private string moveBayToPos(DockingBay bay, Vector3D targetPosition)
 				double a = endRotorToConnectorLength;
 				double b = radiusOfTargetFromDiscCenterLength;
 				double c = middleRotorToEndRotorLength;
-				Echo($"a: {a.ToString()}");
-				Echo($"b: {b.ToString()}");
-				Echo($"c: {c.ToString()}");
+				Debug($"a: {a.ToString()}");
+				Debug($"b: {b.ToString()}");
+				Debug($"c: {c.ToString()}");
 
 				double cosa = ((b * b) + (c * c) - (a * a)) / (2 * b * c);
 				// Echo($"cos(alpha): {cosa.ToString()}");
 
 				float alpha = MathHelper.MonotonicAcos(2.0f - (float)cosa);
-				Echo($"alpha ANGLE middle rotor degrees: {toDegrees(alpha).ToString()}");
+				Debug($"alpha ANGLE middle rotor degrees: {toDegrees(alpha).ToString()}");
 				float beta = MathHelper.MonotonicAcos(2.0f - (float)(((a * a) + (c * c) - (b * b)) / (2 * a * c)));
-				Echo($"beta ANGLE end rotor degrees: {toDegrees(beta).ToString()}");
+				Debug($"beta ANGLE end rotor degrees: {toDegrees(beta).ToString()}");
 				float gamma = MathHelper.MonotonicAcos(2.0f - (float)(((a * a) + (b * b) - (c * c)) / (2 * a * b)));
-				Echo($"gamma ANGLE target to middle: {toDegrees(gamma).ToString()}");
+				Debug($"gamma ANGLE target to middle: {toDegrees(gamma).ToString()}");
 
 				if(Math.Pow(piF - (alpha + beta + gamma), 2) > 0.0003f)
 					throw new Exception((alpha + beta + gamma).ToString() + " angles do not add up to Pi radians");
@@ -792,15 +806,31 @@ public void EchoToLCD(string text)
         }
         screen.ContentType = ContentType.TEXT_AND_IMAGE;
 
+				string[] inputLines = text.Split('\n');
+				int inputCount = inputLines.Length;
+
         string screenText = screen.GetText();
         string[] lines = screenText.Split('\n');
-        if(lines.Length > 60) 
-					ClearLCD();
-        // {
-        //   string newText = screenText.Remove(0, lines[0].Length + 1);
-        //   screen?.WriteText(newText, false);
-        // }
-        screen?.WriteText($"{text}\n", append);
+				int existingLineCount = lines.Length;
+        if(existingLineCount > 15)
+				{ 
+					StringBuilder output = new StringBuilder();
+					// ClearLCD();
+					for (int i = 0; i < inputCount; i++)
+					{
+						output.Append(inputLines[i] + '\n');
+					}
+					for (int i = 0; i + inputCount < 15; i++)
+					{
+						output.Append(lines[i] + '\n');
+					}
+					text = output.ToString();
+					screen?.WriteText($"{text}\n", false);
+				}
+				else
+				{
+					screen?.WriteText($"{text}\n", append);
+				}
     }
 }
 
