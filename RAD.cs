@@ -23,7 +23,7 @@ float connectorOffset = 0.75f;
 
 float piF = (float)Math.PI;
 
-float rotorRotationSpeed = (float)(Math.PI / 2 / 5); // this is in radians per second
+float rotorRotationSpeed = (float)(Math.PI / 5); // this is in radians per second
 
 float pistonSpeed = 2.0f;
 
@@ -421,7 +421,7 @@ private Vector3D getPlayerPos()
 
 	// static Vector3D Transform(Vector3D position, MatrixD matrix)
 
-	Vector3D playerUp = new Vector3D(0.0, 2.5, 0.0);
+	Vector3D playerUp = new Vector3D(0.0, 3.0, 0.0);
 
   return detectedEntity.Position + (Vector3D.Transform(playerUp, detectedEntity.Orientation));
 }
@@ -530,6 +530,9 @@ private void setRotorRotation(IMyMotorAdvancedStator rotor, float targetRadians)
 {
   float current = rotor.Angle;
 
+	if(Math.Pow(current - targetRadians, 2) < 0.001)
+		return;
+
   if(targetRadians > current)
   {
     rotor.TargetVelocityRad = rotorRotationSpeed;
@@ -545,6 +548,9 @@ private void setRotorRotation(IMyMotorAdvancedStator rotor, float targetRadians)
 private void setPistonExtent(IMyPistonBase piston, float target)
 {
     float current = piston.CurrentPosition;
+
+		if(Math.Pow(current - target, 2) < 0.1)
+			return;
 
     if(target > current)
     {
